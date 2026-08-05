@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+backend/.env
+backend/data/
+
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.iml
+*.keystore
+android/.kotlin/
+
+# dumps de cartões reais — não versionar
+cartoes/

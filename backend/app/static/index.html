@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RFID Hub — leituras em tempo real</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --panel-2: #1c232c; --line: #2a323d;
+    --txt: #e6edf3; --dim: #8b98a5; --accent: #4dabf7; --ok: #3fb950;
+    --warn: #d29922; --err: #f85149; --mono: ui-monospace, "JetBrains Mono", "Fira Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--txt);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    height: 100vh; display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px; padding: 12px 20px;
+    background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap;
+  }
+  h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .3px; }
+  .pill {
+    font-size: 12px; padding: 3px 10px; border-radius: 999px;
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--dim);
+  }
+  .pill.on { color: var(--ok); border-color: #1f6f34; }
+  .pill.off { color: var(--err); border-color: #6b2220; }
+  .spacer { flex: 1; }
+  button {
+    background: var(--panel-2); color: var(--txt); border: 1px solid var(--line);
+    padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  main { flex: 1; display: grid; grid-template-columns: 380px 1fr; min-height: 0; }
+  #list { overflow-y: auto; border-right: 1px solid var(--line); }
+  .scan {
+    padding: 10px 14px; border-bottom: 1px solid var(--line); cursor: pointer;
+    border-left: 3px solid transparent;
+  }
+  .scan:hover { background: var(--panel); }
+  .scan.sel { background: var(--panel); border-left-color: var(--accent); }
+  .scan.new { animation: flash 1.2s ease-out; }
+  @keyframes flash { from { background: #1b3a2a; } to { background: transparent; } }
+  .uid { font-family: var(--mono); font-size: 14px; letter-spacing: 1px; }
+  .meta { color: var(--dim); font-size: 12px; display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+  .tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--line); }
+  .tag.ok { color: var(--ok); } .tag.no { color: var(--warn); } .tag.new { color: var(--accent); }
+  #detail { overflow-y: auto; padding: 20px 24px; }
+  .empty { color: var(--dim); text-align: center; margin-top: 80px; }
+  section { margin-bottom: 22px; }
+  h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent);
+    margin: 0 0 8px; padding-bottom: 5px; border-bottom: 1px solid var(--line);
+  }
+  table { border-collapse: collapse; width: 100%; }
+  td { padding: 3px 10px 3px 0; vertical-align: top; }
+  td.k { color: var(--dim); width: 190px; white-space: nowrap; }
+  td.v { font-family: var(--mono); word-break: break-all; }
+  pre {
+    font-family: var(--mono); font-size: 12.5px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px;
+    overflow-x: auto; margin: 0; line-height: 1.45;
+  }
+  .err { color: var(--err); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  input[type=text] {
+    background: var(--panel); border: 1px solid var(--line); color: var(--txt);
+    padding: 6px 10px; border-radius: 6px; font-size: 13px;
+  }
+  .hexhdr { color: var(--dim); }
+  a { color: var(--accent); }
+  .writer {
+    background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 20px;
+  }
+  .writer .row { margin-bottom: 8px; }
+  .writer label { font-size: 13px; color: var(--dim); display: flex; align-items: center; gap: 5px; }
+  .armed {
+    background: #7a4b00; padding: 12px 20px; display: flex; align-items: center; gap: 16px;
+  }
+  .armed b { font-size: 14px; letter-spacing: .5px; }
+  .mono { font-family: var(--mono); font-size: 12px; margin-top: 3px; }
+  .writeok { color: var(--ok); } .writefail { color: var(--err); }
+</style>
+</head>
+<body>
+<header>
+  <h1>RFID Hub</h1>
+  <span id="conn" class="pill off">desconectado</span>
+  <span id="devices" class="pill">nenhum celular</span>
+  <span id="count" class="pill">0 leituras</span>
+  <span class="spacer"></span>
+  <button id="btn-write">gravar na tag</button>
+  <button id="btn-clear">limpar histórico</button>
+</header>
+
+<div id="armed" class="armed" hidden>
+  <div>
+    <b>ENCOSTE A TAG NO CELULAR PARA GRAVAR</b>
+    <div id="armed-desc" class="mono"></div>
+  </div>
+  <button id="btn-cancel">cancelar</button>
+</div>
+
+<div id="writer" class="writer" hidden>
+  <div class="row">
+    <label><input type="radio" name="modo" value="ndef_text" checked> texto / link (NDEF)</label>
+    <label><input type="radio" name="modo" value="classic_text"> texto num setor</label>
+    <label><input type="radio" name="modo" value="classic_block"> bloco cru (hex)</label>
+  </div>
+  <div class="row" id="campo-conteudo">
+    <input type="text" id="w-conteudo" placeholder="conteúdo a gravar" style="flex:1;min-width:280px">
+    <label id="campo-uri"><input type="checkbox" id="w-uri"> gravar como link</label>
+  </div>
+  <div class="row" id="campo-setor" hidden>
+    <input type="text" id="w-setor" value="2" placeholder="setor" style="width:90px">
+    <span class="hexhdr" id="cap-setor"></span>
+  </div>
+  <div class="row" id="campo-bloco" hidden>
+    <input type="text" id="w-bloco" value="8" placeholder="bloco" style="width:90px">
+    <input type="text" id="w-hex" placeholder="32 dígitos hex" style="flex:1;min-width:280px">
+    <span class="hexhdr" id="cap-hex"></span>
+  </div>
+  <div class="row">
+    <button id="btn-arm">armar no celular</button>
+    <span class="hexhdr">Nada é gravado agora — o comando espera a próxima tag. Bloco 0 e trailers são recusados.</span>
+  </div>
+  <div id="w-erro" class="err"></div>
+</div>
+
+<main>
+  <div id="list"></div>
+  <div id="detail"><div class="empty">Encoste um cartão no celular.<br>O dump completo aparece aqui.</div></div>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const listEl = $("#list"), detailEl = $("#detail");
+let scans = [], selected = null;
+
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const hhmmss = (iso) => { try { return new Date(iso).toLocaleTimeString("pt-BR"); } catch { return iso; } };
+
+function renderList() {
+  $("#count").textContent = scans.length + " leitura" + (scans.length === 1 ? "" : "s");
+  listEl.innerHTML = scans.map((s, i) => {
+    const badge = s.authorized ? '<span class="tag ok">autorizado</span>'
+                : s.known ? '<span class="tag no">não autorizado</span>'
+                : '<span class="tag new">novo</span>';
+    return `<div class="scan ${selected === s.id ? "sel" : ""} ${s._new && i === 0 ? "new" : ""}" data-id="${s.id}">
+      <div class="uid">${esc(s.uid)}</div>
+      <div class="meta">
+        <span>${esc(s.tag_type || "?")}</span>${badge}
+        <span>${hhmmss(s.received_at)}</span>
+        ${s.read_ms != null ? `<span>${s.read_ms} ms</span>` : ""}
+      </div>
+      <div class="meta">${esc(s.tech_list || "")}</div>
+    </div>`;
+  }).join("");
+  listEl.querySelectorAll(".scan").forEach(el =>
+    el.onclick = () => { selected = Number(el.dataset.id); renderList(); renderDetail(); });
+}
+
+function kv(rows) {
+  const body = rows.filter(([, v]) => v !== undefined && v !== null && v !== "")
+    .map(([k, v]) => `<tr><td class="k">${esc(k)}</td><td class="v">${esc(v)}</td></tr>`).join("");
+  return body ? `<table>${body}</table>` : "";
+}
+
+function hexBlocks(items, labelKey, dataKey, perLine) {
+  return items.map(it => {
+    const idx = String(it[labelKey]).padStart(3, " ");
+    return `<span class="hexhdr">${idx}:</span> ${esc(it[dataKey] || "")}`;
+  }).join("\n");
+}
+
+function section(title, html) { return html ? `<section><h2>${esc(title)}</h2>${html}</section>` : ""; }
+
+function renderDetail() {
+  const s = scans.find(x => x.id === selected);
+  if (!s) { detailEl.innerHTML = '<div class="empty">Selecione uma leitura.</div>'; return; }
+  const d = s.dump || {};
+  let html = "";
+
+  html += section("Identificação", kv([
+    ["UID", d.uid || s.uid],
+    ["UID (bytes)", d.uid_bytes],
+    ["UID invertido", d.uid_reversed],
+    ["Tamanho do UID", d.uid_len ? d.uid_len + " bytes" : null],
+    ["Tipo de UID", d.uid_kind],
+    ["Fabricante", d.manufacturer],
+    ["Tipo (palpite)", s.tag_type],
+    ["Tecnologias", (d.tech_list || []).join(", ")],
+    ["Celular", s.device],
+    ["Tempo de leitura", s.read_ms != null ? s.read_ms + " ms" : null],
+    ["Recebido em", hhmmss(s.received_at)],
+  ]) + `<div class="row" style="margin-top:10px">
+      <input type="text" id="lbl" placeholder="nome do cartão" value="${esc(s.label || "")}">
+      <button id="btn-auth">autorizar</button>
+      <button id="btn-deny">revogar</button>
+    </div>`);
+
+  if (d.write_result) {
+    const w = d.write_result;
+    html += section("Gravação", `<pre class="${w.ok ? "writeok" : "writefail"}">${
+      esc((w.ok ? "✔ gravado — " : "✘ não gravou — ") + w.mensagem)
+    }${(w.detalhes || []).map(x => "\n  " + esc(x)).join("")}</pre>`);
+  }
+
+  if (d.nfca) html += section("NfcA (ISO 14443-3A)", kv([
+    ["ATQA", d.nfca.atqa], ["SAK", d.nfca.sak],
+    ["Max transceive", d.nfca.max_transceive], ["Timeout", d.nfca.timeout],
+  ]));
+  if (d.nfcb) html += section("NfcB (ISO 14443-3B)", kv([
+    ["Application data", d.nfcb.application_data], ["Protocol info", d.nfcb.protocol_info],
+  ]));
+  if (d.nfcf) html += section("NfcF (FeliCa)", kv([
+    ["Manufacturer", d.nfcf.manufacturer], ["System code", d.nfcf.system_code],
+  ]));
+  if (d.nfcv) {
+    let h = kv([["DSFID", d.nfcv.dsf_id], ["Response flags", d.nfcv.response_flags]]);
+    if (d.nfcv.blocks?.length) h += `<pre>${hexBlocks(d.nfcv.blocks, "index", "data")}</pre>`;
+    html += section("NfcV (ISO 15693)", h);
+  }
+  if (d.isodep) {
+    let h = kv([
+      ["Historical bytes (ATS)", d.isodep.historical_bytes],
+      ["Hi-layer response", d.isodep.hi_layer_response],
+      ["Max transceive", d.isodep.max_transceive],
+      ["Extended APDU", d.isodep.extended_length_apdu_supported],
+    ]);
+    if (d.isodep.apdu_probes?.length) {
+      h += `<pre>` + d.isodep.apdu_probes.map(p =>
+        `<span class="hexhdr">${esc(p.name)}</span>\n  → ${esc(p.command)}\n  ← ${esc(p.response || "-")} ${p.sw ? "[SW=" + esc(p.sw) + "]" : ""}${p.note ? "\n  " + esc(p.note) : ""}`
+      ).join("\n\n") + `</pre>`;
+    }
+    html += section("IsoDep (ISO 14443-4)", h);
+  }
+  if (d.ndef) {
+    let h = kv([
+      ["Tipo NDEF", d.ndef.type], ["Tamanho máximo", d.ndef.max_size],
+      ["Gravável", d.ndef.writable], ["Pode virar read-only", d.ndef.can_make_read_only],
+      ["Tamanho da mensagem", d.ndef.message_size],
+    ]);
+    (d.ndef.records || []).forEach((r, i) => {
+      h += `<div style="margin-top:8px"><b>Registro ${i}</b>` + kv([
+        ["TNF", r.tnf_name ? `${r.tnf} (${r.tnf_name})` : r.tnf],
+        ["Type", r.type_text || r.type],
+        ["ID", r.id],
+        ["Payload (hex)", r.payload_hex],
+        ["Conteúdo", r.decoded],
+      ]) + `</div>`;
+    });
+    html += section("NDEF", h);
+  }
+  if (d.mifare_classic) {
+    const mc = d.mifare_classic;
+    let h = kv([
+      ["Tipo", mc.type], ["Tamanho", mc.size ? mc.size + " bytes" : null],
+      ["Setores", mc.sector_count], ["Blocos", mc.block_count],
+      ["Setores lidos", `${mc.sectors_read ?? 0}/${mc.sector_count ?? "?"}`],
+    ]);
+    (mc.sectors || []).forEach(sec => {
+      const head = `<span class="hexhdr">setor ${sec.index} — chave ${sec.key_type || "?"} ${sec.key_used || ""}${sec.authenticated === false ? " (falhou)" : ""}</span>`;
+      const body = (sec.blocks || []).map((b, i) => `  ${String(i).padStart(2, " ")}: ${esc(b)}`).join("\n");
+      h += `<pre>${head}${body ? "\n" + body : ""}</pre>`;
+    });
+    html += section("MIFARE Classic", h);
+  }
+  if (d.mifare_ultralight) {
+    const mu = d.mifare_ultralight;
+    let h = kv([
+      ["Tipo", mu.type], ["Chip identificado", mu.version_decoded],
+      ["Versão (GET_VERSION)", mu.version], ["Signature", mu.signature],
+      ["Contador", mu.counter],
+      ["Páginas lidas", mu.pages_read != null ? `${mu.pages_read}/${mu.pages_expected ?? "?"}` : null],
+    ]);
+    if (mu.pages?.length) h += `<pre>${hexBlocks(mu.pages, "index", "data")}</pre>`;
+    html += section("MIFARE Ultralight / NTAG", h);
+  }
+  if (d.nfc_barcode) html += section("NFC Barcode", kv([["Tipo", d.nfc_barcode.type], ["Barcode", d.nfc_barcode.barcode]]));
+  if (d.errors?.length) html += section("Avisos / erros", `<pre class="err">${esc(d.errors.join("\n"))}</pre>`);
+
+  html += section("JSON bruto", `<pre>${esc(JSON.stringify(d, null, 2))}</pre>`);
+  detailEl.innerHTML = html;
+
+  const setAuth = async (authorized) => {
+    await fetch(`/api/cards/${encodeURIComponent(s.uid)}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ authorized, label: $("#lbl").value || null }),
+    });
+    s.label = $("#lbl").value;
+    s.authorized = authorized; s.known = true;
+    renderList();
+  };
+  $("#btn-auth").onclick = () => setAuth(true);
+  $("#btn-deny").onclick = () => setAuth(false);
+}
+
+async function loadHistory() {
+  const res = await fetch("/api/scans?limit=100");
+  const rows = await res.json();
+  const details = await Promise.all(rows.map(r => fetch(`/api/scans/${r.id}`).then(x => x.json())));
+  scans = details;
+  renderList();
+}
+
+function connect() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${proto}://${location.host}/ws/dashboard`);
+  ws.onopen = () => { $("#conn").className = "pill on"; $("#conn").textContent = "conectado"; };
+  ws.onclose = () => {
+    $("#conn").className = "pill off"; $("#conn").textContent = "reconectando…";
+    setTimeout(connect, 1500);
+  };
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === "scan") {
+      msg.scan._new = true;
+      scans.unshift(msg.scan);
+      if (scans.length > 200) scans.pop();
+      selected = msg.scan.id;
+      if (msg.scan.dump?.write_result) mostraArmado(null);   // a gravação já aconteceu
+      renderList(); renderDetail();
+    } else if (msg.type === "write_armed") {
+      mostraArmado(msg.job);
+    } else if (msg.type === "write_canceled") {
+      mostraArmado(null);
+    } else if (msg.type === "hello" || msg.type === "device_connected" || msg.type === "device_disconnected") {
+      const ds = msg.devices || [];
+      $("#devices").textContent = ds.length ? ds.join(", ") : "nenhum celular";
+      $("#devices").className = "pill " + (ds.length ? "on" : "");
+    }
+  };
+  setInterval(() => { if (ws.readyState === 1) ws.send("ping"); }, 25000);
+}
+
+// ------------------------------------------------------------------ gravação
+const modoAtual = () => document.querySelector('input[name=modo]:checked').value;
+
+function atualizaCampos() {
+  const m = modoAtual();
+  $("#campo-conteudo").hidden = m === "classic_block";
+  $("#campo-uri").hidden = m !== "ndef_text";
+  $("#campo-setor").hidden = m !== "classic_text";
+  $("#campo-bloco").hidden = m !== "classic_block";
+  atualizaContadores();
+}
+
+function atualizaContadores() {
+  const setor = parseInt($("#w-setor").value, 10);
+  const cabe = setor === 0 ? 32 : 48;
+  const usados = new TextEncoder().encode($("#w-conteudo").value).length;
+  $("#cap-setor").textContent = `${usados} de ${cabe} bytes`;
+  const hx = $("#w-hex").value.replace(/\s/g, "");
+  $("#cap-hex").textContent = `${hx.length} de 32 dígitos`;
+}
+
+document.querySelectorAll('input[name=modo]').forEach(r => r.onchange = atualizaCampos);
+["#w-conteudo", "#w-setor", "#w-hex"].forEach(s => $(s).oninput = atualizaContadores);
+
+$("#btn-write").onclick = () => { $("#writer").hidden = !$("#writer").hidden; atualizaCampos(); };
+
+$("#btn-arm").onclick = async () => {
+  const body = {
+    mode: modoAtual(),
+    conteudo: $("#w-conteudo").value,
+    como_uri: $("#w-uri").checked,
+    setor: parseInt($("#w-setor").value, 10),
+    bloco: parseInt($("#w-bloco").value, 10),
+    hex: $("#w-hex").value.replace(/\s/g, "").toUpperCase(),
+  };
+  $("#w-erro").textContent = "";
+  const res = await fetch("/api/write", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    $("#w-erro").textContent = "não deu para armar: " + (err.detail || res.status);
+    return;
+  }
+  $("#writer").hidden = true;
+};
+
+$("#btn-cancel").onclick = () => fetch("/api/write", { method: "DELETE" });
+
+function mostraArmado(job) {
+  const el = $("#armed");
+  if (!job) { el.hidden = true; return; }
+  el.hidden = false;
+  $("#armed-desc").textContent =
+    job.mode === "ndef_text" ? `NDEF ${job.como_uri ? "link" : "texto"} → ${job.conteudo}`
+    : job.mode === "classic_text" ? `setor ${job.setor} → "${job.conteudo}"`
+    : `bloco ${job.bloco} → ${job.hex}`;
+}
+
+$("#btn-clear").onclick = async () => {
+  await fetch("/api/scans", { method: "DELETE" });
+  scans = []; selected = null; renderList(); renderDetail();
+};
+
+loadHistory(); connect();
+</script>
+</body>
+</html>

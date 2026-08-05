@@ -1,0 +1,10 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+sqlalchemy==2.0.36
+pydantic==2.10.4
+pydantic-settings==2.7.0
+python-dotenv==1.0.1
+websockets==14.1
+
+# Postgres (opcional — troque DATABASE_URL para postgresql+psycopg://...)
+# psycopg[binary]==3.2.3

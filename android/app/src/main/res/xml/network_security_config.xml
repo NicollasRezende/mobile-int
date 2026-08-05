@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  O backend roda em ws://ip-local:8000 sem TLS. O Android bloqueia tráfego em
+  claro por padrão desde o Android 9, então liberamos só as faixas de rede
+  privada — a internet continua exigindo HTTPS.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">10.0.0.0</domain>
+        <domain includeSubdomains="true">192.168.0.0</domain>
+        <domain includeSubdomains="true">172.16.0.0</domain>
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+    </domain-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
