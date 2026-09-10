@@ -16,6 +16,10 @@ cadastro prévio. Encostou, ele lê o máximo que consegue e mostra o que veio.
                                     └──▶ painel web (tempo real)
 ```
 
+> **📐 [Apresentação técnica — Anatomia do mobile-int](https://claude.ai/code/artifact/46d19ead-cb4b-47c7-b248-55191948d66e)**
+> O caminho completo de uma leitura, da antena ao banco, e as decisões de arquitetura
+> com seus trade-offs. Mesma coisa em texto: [`ARQUITETURA.md`](ARQUITETURA.md).
+
 ## Do zero até rodando
 
 ### Pré-requisitos
@@ -283,6 +287,8 @@ utilizáveis: 2 no setor 0 e 3 em cada um dos setores 1 a 15.
 Camadas separadas em `backend/app/`: `routers/` (HTTP e WebSocket),
 `services/` (regra de negócio, hub de conexões, autenticação),
 `repositories/` (acesso a dados), `models.py` (SQLAlchemy), `schemas.py` (Pydantic).
+
+Detalhamento de cada camada e do ciclo de uma requisição: [`ARQUITETURA.md`](ARQUITETURA.md).
 
 O `dump` chega e é gravado **inteiro** como JSON, mesmo com campos que o backend
 não conhece — o `ScanIn` é propositalmente permissivo. Cartão novo não é
